@@ -17,28 +17,22 @@ class StorageService {
     await Hive.initFlutter();
 
     // Register enum adapters
-    _registerAdapterIfNeeded<FocusMode>(FocusModeAdapter());
-    _registerAdapterIfNeeded<AlcoholLevel>(AlcoholLevelAdapter());
-    _registerAdapterIfNeeded<SleepCategory>(SleepCategoryAdapter());
-    _registerAdapterIfNeeded<StressLevel>(StressLevelAdapter());
+    Hive.registerAdapter(FocusModeAdapter());
+    Hive.registerAdapter(AlcoholLevelAdapter());
+    Hive.registerAdapter(SleepCategoryAdapter());
+    Hive.registerAdapter(StressLevelAdapter());
 
     // Register model adapters
-    _registerAdapterIfNeeded<UserProfile>(UserProfileAdapter());
-    _registerAdapterIfNeeded<LabResult>(LabResultAdapter());
-    _registerAdapterIfNeeded<DailyLog>(DailyLogAdapter());
-    _registerAdapterIfNeeded<ScoreSnapshot>(ScoreSnapshotAdapter());
+    Hive.registerAdapter(UserProfileAdapter());
+    Hive.registerAdapter(LabResultAdapter());
+    Hive.registerAdapter(DailyLogAdapter());
+    Hive.registerAdapter(ScoreSnapshotAdapter());
 
     // Open boxes
     await Hive.openBox<UserProfile>(userProfileBox);
     await Hive.openBox<LabResult>(labResultsBox);
     await Hive.openBox<DailyLog>(dailyLogsBox);
     await Hive.openBox<ScoreSnapshot>(scoreSnapshotsBox);
-  }
-
-  static void _registerAdapterIfNeeded<T>(TypeAdapter<T> adapter) {
-    if (!Hive.isAdapterRegistered(adapter.typeId)) {
-      Hive.registerAdapter<T>(adapter);
-    }
   }
 
   // ==========================================================================
