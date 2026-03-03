@@ -4,8 +4,20 @@ import '../../core/models/lab_result.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/score_service.dart';
 
+enum _ImportState {
+  idle,
+  picking,
+  parsing,
+  review,
+}
+
 class AddLabScreen extends StatefulWidget {
-  const AddLabScreen({super.key});
+  final bool startPhotoImport;
+
+  const AddLabScreen({
+    super.key,
+    this.startPhotoImport = false,
+  });
 
   @override
   State<AddLabScreen> createState() => _AddLabScreenState();
@@ -25,6 +37,18 @@ class _AddLabScreenState extends State<AddLabScreen> {
   DateTime _selectedDate = DateTime.now();
   bool _isFasting = false;
   bool _isSaving = false;
+  _ImportState _importState = _ImportState.idle;
+  String? _importMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.startPhotoImport) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _startPhotoImport();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -140,6 +164,33 @@ class _AddLabScreenState extends State<AddLabScreen> {
     }
   }
 
+  Future<void> _startPhotoImport() async {
+    if (_importState == _ImportState.picking ||
+        _importState == _ImportState.parsing) {
+      return;
+    }
+
+    setState(() {
+      _importState = _ImportState.picking;
+      _importMessage = 'Opening image picker...';
+    });
+
+    await Future.delayed(const Duration(milliseconds: 700));
+
+    setState(() {
+      _importState = _ImportState.parsing;
+      _importMessage = 'Extracting lipid markers from image...';
+    });
+
+    await Future.delayed(const Duration(milliseconds: 1200));
+
+    setState(() {
+      _importState = _ImportState.review;
+      _importMessage =
+          'OCR scaffold complete. Automatic extraction will be enabled in a follow-up update.';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -153,6 +204,60 @@ class _AddLabScreenState extends State<AddLabScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Card(
+                color: Colors.blue.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.camera_alt_outlined),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Import from Lab Photo',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _importMessage ??
+                            'Use camera/image import flow (OCR placeholder for MVP).',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: (_importState == _ImportState.picking ||
+                                    _importState == _ImportState.parsing)
+                                ? null
+                                : _startPhotoImport,
+                            icon: const Icon(Icons.photo_camera_back_outlined),
+                            label: const Text('Start Photo Import'),
+                          ),
+                          if (_importState == _ImportState.review)
+                            OutlinedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _importState = _ImportState.idle;
+                                  _importMessage = null;
+                                });
+                              },
+                              child: const Text('Reset Import State'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
               // Date picker
               Card(
                 child: ListTile(

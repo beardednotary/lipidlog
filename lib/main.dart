@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/services/storage_service.dart';
+import 'core/services/notification_service.dart';
 import 'app.dart';
 
 void main() async {
@@ -12,6 +13,7 @@ void main() async {
   try {
     // Initialize Hive storage before rendering the app.
     await StorageService.init();
+    await NotificationService.init();
   } catch (error, stackTrace) {
     startupError = error;
     startupStackTrace = stackTrace;

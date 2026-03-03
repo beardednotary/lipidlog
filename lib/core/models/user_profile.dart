@@ -32,6 +32,33 @@ class UserProfile extends HiveObject {
   @HiveField(8)
   bool onMedication;
 
+  @HiveField(9)
+  bool habitReminderEnabled;
+
+  @HiveField(10)
+  int habitReminderHour;
+
+  @HiveField(11)
+  int habitReminderMinute;
+
+  @HiveField(12)
+  bool medReminderEnabled;
+
+  @HiveField(13)
+  int medReminderHour;
+
+  @HiveField(14)
+  int medReminderMinute;
+
+  @HiveField(15)
+  bool labReminderEnabled;
+
+  @HiveField(16)
+  int labReminderMonths;
+
+  @HiveField(17)
+  bool prefersMorningLogging;
+
   UserProfile({
     required this.id,
     this.age,
@@ -40,6 +67,15 @@ class UserProfile extends HiveObject {
     this.ldlTarget,
     this.tgTarget,
     this.onMedication = false,
+    this.habitReminderEnabled = false,
+    this.habitReminderHour = 20,
+    this.habitReminderMinute = 0,
+    this.medReminderEnabled = false,
+    this.medReminderHour = 9,
+    this.medReminderMinute = 0,
+    this.labReminderEnabled = false,
+    this.labReminderMonths = 3,
+    this.prefersMorningLogging = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : createdAt = createdAt ?? DateTime.now(),
@@ -53,6 +89,15 @@ class UserProfile extends HiveObject {
     double? ldlTarget,
     double? tgTarget,
     bool? onMedication,
+    bool? habitReminderEnabled,
+    int? habitReminderHour,
+    int? habitReminderMinute,
+    bool? medReminderEnabled,
+    int? medReminderHour,
+    int? medReminderMinute,
+    bool? labReminderEnabled,
+    int? labReminderMonths,
+    bool? prefersMorningLogging,
     DateTime? updatedAt,
   }) {
     return UserProfile(
@@ -63,6 +108,16 @@ class UserProfile extends HiveObject {
       ldlTarget: ldlTarget ?? this.ldlTarget,
       tgTarget: tgTarget ?? this.tgTarget,
       onMedication: onMedication ?? this.onMedication,
+      habitReminderEnabled: habitReminderEnabled ?? this.habitReminderEnabled,
+      habitReminderHour: habitReminderHour ?? this.habitReminderHour,
+      habitReminderMinute: habitReminderMinute ?? this.habitReminderMinute,
+      medReminderEnabled: medReminderEnabled ?? this.medReminderEnabled,
+      medReminderHour: medReminderHour ?? this.medReminderHour,
+      medReminderMinute: medReminderMinute ?? this.medReminderMinute,
+      labReminderEnabled: labReminderEnabled ?? this.labReminderEnabled,
+      labReminderMonths: labReminderMonths ?? this.labReminderMonths,
+      prefersMorningLogging:
+          prefersMorningLogging ?? this.prefersMorningLogging,
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );
@@ -77,6 +132,15 @@ class UserProfile extends HiveObject {
       'ldlTarget': ldlTarget,
       'tgTarget': tgTarget,
       'onMedication': onMedication,
+      'habitReminderEnabled': habitReminderEnabled,
+      'habitReminderHour': habitReminderHour,
+      'habitReminderMinute': habitReminderMinute,
+      'medReminderEnabled': medReminderEnabled,
+      'medReminderHour': medReminderHour,
+      'medReminderMinute': medReminderMinute,
+      'labReminderEnabled': labReminderEnabled,
+      'labReminderMonths': labReminderMonths,
+      'prefersMorningLogging': prefersMorningLogging,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -94,6 +158,15 @@ class UserProfile extends HiveObject {
       ldlTarget: json['ldlTarget'] as double?,
       tgTarget: json['tgTarget'] as double?,
       onMedication: json['onMedication'] as bool? ?? false,
+      habitReminderEnabled: json['habitReminderEnabled'] as bool? ?? false,
+      habitReminderHour: json['habitReminderHour'] as int? ?? 20,
+      habitReminderMinute: json['habitReminderMinute'] as int? ?? 0,
+      medReminderEnabled: json['medReminderEnabled'] as bool? ?? false,
+      medReminderHour: json['medReminderHour'] as int? ?? 9,
+      medReminderMinute: json['medReminderMinute'] as int? ?? 0,
+      labReminderEnabled: json['labReminderEnabled'] as bool? ?? false,
+      labReminderMonths: json['labReminderMonths'] as int? ?? 3,
+      prefersMorningLogging: json['prefersMorningLogging'] as bool? ?? false,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );

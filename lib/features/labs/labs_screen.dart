@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/models/lab_result.dart';
 import 'add_lab_screen.dart';
@@ -11,6 +12,8 @@ class LabsScreen extends StatefulWidget {
 }
 
 class _LabsScreenState extends State<LabsScreen> {
+  int _selectedChart = 0; // 0 = LDL, 1 = TG
+
   @override
   Widget build(BuildContext context) {
     final labs = StorageService.getAllLabResults();
@@ -18,6 +21,21 @@ class _LabsScreenState extends State<LabsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Labs'),
+        actions: [
+          IconButton(
+            tooltip: 'Import from photo',
+            icon: const Icon(Icons.camera_alt_outlined),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AddLabScreen(startPhotoImport: true),
+                ),
+              );
+              setState(() {});
+            },
+          ),
+        ],
       ),
       body: labs.isEmpty
           ? Center(
@@ -42,13 +60,19 @@ class _LabsScreenState extends State<LabsScreen> {
                 ],
               ),
             )
-          : ListView.builder(
+          : ListView(
               padding: const EdgeInsets.all(16),
-              itemCount: labs.length,
-              itemBuilder: (context, index) {
-                final lab = labs[index];
-                return _LabCard(lab: lab);
-              },
+              children: [
+                _TrendChartCard(
+                  labs: labs,
+                  selectedChart: _selectedChart,
+                  onChartChanged: (index) {
+                    setState(() => _selectedChart = index);
+                  },
+                ),
+                const SizedBox(height: 16),
+                ...labs.map((lab) => _LabCard(lab: lab)),
+              ],
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
@@ -59,6 +83,105 @@ class _LabsScreenState extends State<LabsScreen> {
           setState(() {}); // Refresh list
         },
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class _TrendChartCard extends StatelessWidget {
+  final List<LabResult> labs;
+  final int selectedChart;
+  final ValueChanged<int> onChartChanged;
+
+  const _TrendChartCard({
+    required this.labs,
+    required this.selectedChart,
+    required this.onChartChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = List<LabResult>.from(labs)
+      ..sort((a, b) => a.date.compareTo(b.date));
+
+    final points = <FlSpot>[];
+    for (var i = 0; i < sorted.length; i++) {
+      final lab = sorted[i];
+      final value = selectedChart == 0 ? lab.ldl : lab.triglycerides;
+      if (value != null) {
+        points.add(FlSpot(i.toDouble(), value));
+      }
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Trends',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment<int>(value: 0, label: Text('LDL')),
+                ButtonSegment<int>(value: 1, label: Text('TG')),
+              ],
+              selected: {selectedChart},
+              onSelectionChanged: (selection) {
+                onChartChanged(selection.first);
+              },
+            ),
+            const SizedBox(height: 16),
+            if (points.length < 2)
+              Text(
+                'Add at least 2 ${selectedChart == 0 ? 'LDL' : 'TG'} values to see a trend chart.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              )
+            else
+              SizedBox(
+                height: 180,
+                child: LineChart(
+                  LineChartData(
+                    minY: 0,
+                    gridData: const FlGridData(show: false),
+                    borderData: FlBorderData(show: false),
+                    titlesData: const FlTitlesData(
+                      topTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      rightTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: points,
+                        isCurved: true,
+                        color: selectedChart == 0
+                            ? Colors.blue.shade600
+                            : Colors.orange.shade700,
+                        barWidth: 3,
+                        dotData: const FlDotData(show: true),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: (selectedChart == 0
+                                  ? Colors.blue.shade600
+                                  : Colors.orange.shade700)
+                              .withValues(alpha: 0.12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

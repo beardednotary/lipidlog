@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/models/user_profile.dart';
 import '../../core/models/enums.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/notification_service.dart';
 import '../home/home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -20,11 +21,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   double? _ldlTarget;
   double? _tgTarget;
   bool _onMedication = false;
+  bool _prefersMorningLogging = false;
+  bool _enableHabitReminder = true;
 
   static const _uuid = Uuid();
 
   void _nextStep() {
-    if (_currentStep < 3) {
+    if (_currentStep < 4) {
       setState(() => _currentStep++);
     } else {
       _completeOnboarding();
@@ -46,9 +49,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ldlTarget: _ldlTarget,
       tgTarget: _tgTarget,
       onMedication: _onMedication,
+      habitReminderEnabled: _enableHabitReminder,
+      habitReminderHour: _prefersMorningLogging ? 8 : 20,
+      habitReminderMinute: 0,
+      prefersMorningLogging: _prefersMorningLogging,
     );
 
     await StorageService.saveUserProfile(profile);
+    await NotificationService.configureReminders(profile);
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -75,7 +83,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             children: [
               // Progress indicator
               LinearProgressIndicator(
-                value: (_currentStep + 1) / 4,
+                value: (_currentStep + 1) / 5,
               ),
               const SizedBox(height: 32),
 
@@ -90,7 +98,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 child: ElevatedButton(
                   onPressed: _canProceed() ? _nextStep : null,
                   child: Text(
-                    _currentStep == 2 ? 'Get Started' : 'Next',
+                    _currentStep == 4 ? 'Get Started' : 'Next',
                   ),
                 ),
               ),
@@ -110,6 +118,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       case 2:
         return _buildMedicationStep();
       case 3:
+        return _buildLoggingRoutineStep();
+      case 4:
         return _buildTargetsStep();
       default:
         return const SizedBox();
@@ -275,6 +285,53 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               setState(() => _tgTarget = double.tryParse(value));
             },
           ),
+      ],
+    );
+  }
+
+  Widget _buildLoggingRoutineStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'When Do You Prefer Logging?',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Pick the routine that fits your day. We will remind you at the right time.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 24),
+        _FocusModeCard(
+          mode: FocusMode.both,
+          title: 'Evening check-in',
+          description: 'Log the same day in the evening (recommended default)',
+          isSelected: !_prefersMorningLogging,
+          onTap: () => setState(() => _prefersMorningLogging = false),
+        ),
+        const SizedBox(height: 12),
+        _FocusModeCard(
+          mode: FocusMode.both,
+          title: 'Morning catch-up',
+          description: 'Log yesterday the next morning',
+          isSelected: _prefersMorningLogging,
+          onTap: () => setState(() => _prefersMorningLogging = true),
+        ),
+        const SizedBox(height: 20),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Enable daily habit reminder'),
+          subtitle: Text(
+            _prefersMorningLogging
+                ? 'Reminder set for 8:00 AM'
+                : 'Reminder set for 8:00 PM',
+          ),
+          value: _enableHabitReminder,
+          onChanged: (value) {
+            setState(() => _enableHabitReminder = value);
+          },
+        ),
       ],
     );
   }

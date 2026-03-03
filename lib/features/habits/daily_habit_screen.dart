@@ -15,26 +15,52 @@ class DailyHabitScreen extends StatefulWidget {
 class _DailyHabitScreenState extends State<DailyHabitScreen> {
   final _uuid = const Uuid();
   late DailyLog _log;
+  late DateTime _logDate;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _loadTodayLog();
+    _loadInitialLog();
   }
 
-  void _loadTodayLog() {
-    final today = DailyLog.normalizeDate(DateTime.now());
-    final existing = StorageService.getLogForDate(today);
+  void _loadInitialLog() {
+    final profile = StorageService.getUserProfile();
+    final now = DateTime.now();
+    final defaultDate =
+        (profile?.prefersMorningLogging ?? false) && now.hour < 12
+            ? DailyLog.normalizeDate(now.subtract(const Duration(days: 1)))
+            : DailyLog.normalizeDate(now);
+    _loadLogForDate(defaultDate);
+  }
+
+  void _loadLogForDate(DateTime date) {
+    final normalized = DailyLog.normalizeDate(date);
+    final existing = StorageService.getLogForDate(normalized);
+    _logDate = normalized;
 
     if (existing != null) {
       _log = existing;
     } else {
       _log = DailyLog(
         id: _uuid.v4(),
-        date: today,
+        date: normalized,
       );
     }
+  }
+
+  Future<void> _pickLogDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _logDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now(),
+      helpText: 'Select day to log',
+    );
+    if (picked == null) return;
+    setState(() {
+      _loadLogForDate(picked);
+    });
   }
 
   Future<void> _saveLog() async {
@@ -61,7 +87,7 @@ class _DailyHabitScreenState extends State<DailyHabitScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Habits saved! Score: ${newScore.overallScore.toStringAsFixed(0)}',
+            'Saved ${_logDate.month}/${_logDate.day} habits. Score: ${newScore.overallScore.toStringAsFixed(0)}',
           ),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
@@ -91,7 +117,7 @@ class _DailyHabitScreenState extends State<DailyHabitScreen> {
     final profile = StorageService.getUserProfile();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Today\'s Habits'),
+        title: const Text('Daily Habits'),
         actions: [
           if (_isSaving)
             const Center(
@@ -112,13 +138,51 @@ class _DailyHabitScreenState extends State<DailyHabitScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              DateTime.now().toString().split(' ')[0],
+              '${_logDate.year}-${_logDate.month.toString().padLeft(2, '0')}-${_logDate.day.toString().padLeft(2, '0')}',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
             Text(
-              'Track your daily behaviors to improve your score',
+              (profile?.prefersMorningLogging ?? false) &&
+                      DateTime.now().hour < 12
+                  ? 'Logging yesterday\'s habits (morning catch-up mode)'
+                  : 'Track your daily behaviors to improve your score',
               style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Yesterday'),
+                  selected: _logDate ==
+                      DailyLog.normalizeDate(
+                        DateTime.now().subtract(const Duration(days: 1)),
+                      ),
+                  onSelected: (_) {
+                    setState(() {
+                      _loadLogForDate(
+                        DateTime.now().subtract(const Duration(days: 1)),
+                      );
+                    });
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Today'),
+                  selected: _logDate == DailyLog.normalizeDate(DateTime.now()),
+                  onSelected: (_) {
+                    setState(() {
+                      _loadLogForDate(DateTime.now());
+                    });
+                  },
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.calendar_today, size: 18),
+                  label: const Text('Pick day'),
+                  onPressed: _pickLogDate,
+                ),
+              ],
             ),
             const SizedBox(height: 24),
 
@@ -411,7 +475,9 @@ class _DailyHabitScreenState extends State<DailyHabitScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _isSaving ? null : _saveLog,
-                child: const Text('Save Today\'s Habits'),
+                child: Text(
+                  'Save ${_logDate.month}/${_logDate.day} Habits',
+                ),
               ),
             ),
           ],

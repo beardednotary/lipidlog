@@ -1,11 +1,12 @@
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../core/services/storage_service.dart';
-import '../../core/services/score_service.dart';
-import '../../core/models/score_snapshot.dart';
-import '../../core/models/lab_result.dart';
+import 'package:flutter/material.dart';
+
 import '../../core/models/daily_log.dart';
 import '../../core/models/enums.dart';
+import '../../core/models/lab_result.dart';
+import '../../core/models/score_snapshot.dart';
+import '../../core/services/storage_service.dart';
+import '../../core/services/weekly_insights_service.dart';
 import '../../core/theme/app_theme.dart';
 
 class PatternsScreen extends StatefulWidget {
@@ -16,25 +17,14 @@ class PatternsScreen extends StatefulWidget {
 }
 
 class _PatternsScreenState extends State<PatternsScreen> {
+  int _selectedMetric = 0; // 0 LDL, 1 TG, 2 Score
+
   @override
   Widget build(BuildContext context) {
-    // Get all data
     final profile = StorageService.getUserProfile();
     final labs = StorageService.getAllLabResults();
     final logs = StorageService.getAllDailyLogs();
-
-    // Calculate current score
-    ScoreSnapshot? currentScore;
-    if (profile != null) {
-      currentScore = ScoreService.computeScores(
-        profile: profile,
-        labs: labs,
-        logs: logs,
-      );
-    }
-
-    // Get historical scores (we'll build this over time)
-    final historicalScores = _calculateHistoricalScores(profile, labs, logs);
+    final scores = StorageService.getAllScoreSnapshots();
 
     return Scaffold(
       appBar: AppBar(
@@ -45,118 +35,49 @@ class _PatternsScreenState extends State<PatternsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Score Trend Chart
-            if (currentScore != null) ...[
-              _ScoreTrendCard(
-                scores: historicalScores,
-                currentScore: currentScore,
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // This Week Summary
-            _ThisWeekSummaryCard(logs: logs),
+            _MetricTrendCard(
+              selectedMetric: _selectedMetric,
+              labs: labs,
+              scores: scores,
+              onMetricChanged: (value) {
+                setState(() => _selectedMetric = value);
+              },
+            ),
             const SizedBox(height: 16),
-
-            // Lab History
-            _LabHistoryCard(labs: labs),
+            _WeeklySummaryCard(logs: logs),
             const SizedBox(height: 16),
-
-            // Insights
-            if (logs.length >= 7)
-              _InsightsCard(logs: logs, currentScore: currentScore),
+            _CorrelationInsightsCard(
+              logs: logs,
+              labs: labs,
+              scores: scores,
+              onMedication: profile?.onMedication ?? false,
+            ),
           ],
         ),
       ),
     );
   }
-
-  List<ScoreSnapshot> _calculateHistoricalScores(
-    profile,
-    List<LabResult> labs,
-    List<DailyLog> logs,
-  ) {
-    if (profile == null) return [];
-
-    final List<ScoreSnapshot> scores = [];
-    final now = DateTime.now();
-
-    // Calculate score for each day we have data
-    for (int i = 0; i <= 90; i++) {
-      final date = now.subtract(Duration(days: i));
-
-      // Get labs up to this date
-      final labsUpToDate = labs
-          .where((lab) =>
-              lab.date.isBefore(date) || lab.date.isAtSameMomentAs(date))
-          .toList();
-
-      // Get logs up to this date
-      final logsUpToDate = logs
-          .where((log) =>
-              log.date.isBefore(date) || log.date.isAtSameMomentAs(date))
-          .toList();
-
-      if (labsUpToDate.isEmpty) continue;
-
-      final score = ScoreService.computeScores(
-        profile: profile,
-        labs: labsUpToDate,
-        logs: logsUpToDate,
-      );
-
-      scores.add(score);
-    }
-
-    // Reverse so oldest is first
-    return scores.reversed.toList();
-  }
 }
 
-class _ScoreTrendCard extends StatelessWidget {
+class _MetricTrendCard extends StatelessWidget {
+  final int selectedMetric;
+  final List<LabResult> labs;
   final List<ScoreSnapshot> scores;
-  final ScoreSnapshot currentScore;
+  final ValueChanged<int> onMetricChanged;
 
-  const _ScoreTrendCard({
+  const _MetricTrendCard({
+    required this.selectedMetric,
+    required this.labs,
     required this.scores,
-    required this.currentScore,
+    required this.onMetricChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (scores.length < 2) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              Icon(
-                Icons.show_chart,
-                size: 48,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Score Trend',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Log habits daily to see your trend',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Calculate change
-    final firstScore = scores.first.overallScore;
-    final lastScore = scores.last.overallScore;
-    final change = lastScore - firstScore;
-    final isPositive = change > 0;
+    final points = _buildPoints();
+    final hasEnoughData = points.length >= 2;
+    final current = hasEnoughData ? points.last.value : null;
+    final delta = hasEnoughData ? points.last.value - points.first.value : null;
 
     return Card(
       child: Padding(
@@ -164,160 +85,180 @@ class _ScoreTrendCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Score Trend',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        isPositive ? Colors.green.shade50 : Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isPositive ? Icons.arrow_upward : Icons.arrow_downward,
-                        size: 16,
-                        color: isPositive ? Colors.green : Colors.red,
+            Text(
+              'Trend Dashboard',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment<int>(value: 0, label: Text('LDL')),
+                ButtonSegment<int>(value: 1, label: Text('TG')),
+                ButtonSegment<int>(value: 2, label: Text('Score')),
+              ],
+              selected: {selectedMetric},
+              onSelectionChanged: (selection) {
+                onMetricChanged(selection.first);
+              },
+            ),
+            const SizedBox(height: 12),
+            if (hasEnoughData) ...[
+              Text(
+                _headline(current!, delta!),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                _subline(points.length),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 16),
+            if (!hasEnoughData)
+              Text(
+                'Add more data points to unlock this trend.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              )
+            else
+              SizedBox(
+                height: 210,
+                child: LineChart(
+                  LineChartData(
+                    minY: 0,
+                    gridData: const FlGridData(show: false),
+                    borderData: FlBorderData(show: false),
+                    titlesData: const FlTitlesData(
+                      topTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${change.abs().toStringAsFixed(0)} pts',
-                        style: TextStyle(
-                          color: isPositive ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.bold,
+                      rightTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: points
+                            .asMap()
+                            .entries
+                            .map((entry) => FlSpot(
+                                  entry.key.toDouble(),
+                                  entry.value.value,
+                                ))
+                            .toList(),
+                        isCurved: true,
+                        color: _metricColor(),
+                        barWidth: 3,
+                        dotData: const FlDotData(show: false),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: _metricColor().withValues(alpha: 0.12),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 200,
-              child: LineChart(
-                LineChartData(
-                  gridData: const FlGridData(show: false),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toInt().toString(),
-                            style: const TextStyle(fontSize: 12),
-                          );
-                        },
-                      ),
-                    ),
-                    bottomTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  minY: 0,
-                  maxY: 100,
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: scores.asMap().entries.map((entry) {
-                        return FlSpot(
-                          entry.key.toDouble(),
-                          entry.value.overallScore,
-                        );
-                      }).toList(),
-                      isCurved: true,
-                      color: AppTheme.primaryColor,
-                      barWidth: 3,
-                      dotData: const FlDotData(show: false),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                      ),
-                    ),
-                  ],
-                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Last ${scores.length} days',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ],
         ),
       ),
     );
   }
+
+  List<_MetricPoint> _buildPoints() {
+    if (selectedMetric == 2) {
+      final byDay = <DateTime, ScoreSnapshot>{};
+      for (final score in scores) {
+        final day = DateTime(score.date.year, score.date.month, score.date.day);
+        final existing = byDay[day];
+        if (existing == null || score.date.isAfter(existing.date)) {
+          byDay[day] = score;
+        }
+      }
+      final sortedDays = byDay.keys.toList()..sort();
+      return sortedDays
+          .map((day) => _MetricPoint(day: day, value: byDay[day]!.overallScore))
+          .toList();
+    }
+
+    final sortedLabs = List<LabResult>.from(labs)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final points = <_MetricPoint>[];
+    for (final lab in sortedLabs) {
+      final value = selectedMetric == 0 ? lab.ldl : lab.triglycerides;
+      if (value != null) {
+        points.add(_MetricPoint(day: lab.date, value: value));
+      }
+    }
+    return points;
+  }
+
+  Color _metricColor() {
+    switch (selectedMetric) {
+      case 0:
+        return Colors.blue.shade600;
+      case 1:
+        return Colors.orange.shade700;
+      case 2:
+        return AppTheme.primaryColor;
+      default:
+        return AppTheme.primaryColor;
+    }
+  }
+
+  String _headline(double current, double delta) {
+    final metric = selectedMetric == 0
+        ? 'LDL'
+        : selectedMetric == 1
+            ? 'TG'
+            : 'Score';
+    final direction = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
+    final abs = delta.abs().toStringAsFixed(0);
+    return '$metric now ${current.toStringAsFixed(0)} ($direction $abs)';
+  }
+
+  String _subline(int pointsCount) {
+    final metric = selectedMetric == 0
+        ? 'LDL'
+        : selectedMetric == 1
+            ? 'triglyceride'
+            : 'score';
+    return '$pointsCount $metric data points';
+  }
 }
 
-class _ThisWeekSummaryCard extends StatelessWidget {
+class _WeeklySummaryCard extends StatelessWidget {
   final List<DailyLog> logs;
 
-  const _ThisWeekSummaryCard({required this.logs});
+  const _WeeklySummaryCard({
+    required this.logs,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // Get logs from last 7 days
     final now = DateTime.now();
     final weekAgo = now.subtract(const Duration(days: 7));
-    final thisWeekLogs =
-        logs.where((log) => log.date.isAfter(weekAgo)).toList();
+    final recent = logs.where((log) => log.date.isAfter(weekAgo)).toList();
 
-    if (thisWeekLogs.isEmpty) {
+    if (recent.isEmpty) {
       return Card(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              Icon(
-                Icons.calendar_today,
-                size: 48,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'This Week',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Log your daily habits to see weekly insights',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-            ],
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Log daily habits to generate a weekly summary.',
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
       );
     }
 
-    // Calculate stats
-    final daysLogged = thisWeekLogs.length;
-    final medsCount = thisWeekLogs.where((log) => log.medicationTaken).length;
-    final stepsCount = thisWeekLogs.where((log) => log.stepsGoalHit).length;
-    final noAlcoholCount = thisWeekLogs
-        .where((log) => log.alcoholLevel == AlcoholLevel.none)
-        .length;
-    final goodSleepCount = thisWeekLogs
-        .where((log) => log.sleepCategory == SleepCategory.normal6to8h)
-        .length;
+    final daysLogged = recent.length;
+    final alcoholFree =
+        recent.where((log) => log.alcoholLevel == AlcoholLevel.none).length;
+    final steps = recent.where((log) => log.stepsGoalHit).length;
+    final meds = recent.where((log) => log.medicationTaken).length;
 
     return Card(
       child: Padding(
@@ -329,39 +270,11 @@ class _ThisWeekSummaryCard extends StatelessWidget {
               'This Week',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 8),
-            Text(
-              '$daysLogged days logged',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            _HabitStat(
-              icon: Icons.medication,
-              label: 'Medication taken',
-              count: medsCount,
-              total: daysLogged,
-            ),
-            const SizedBox(height: 8),
-            _HabitStat(
-              icon: Icons.directions_walk,
-              label: 'Steps goal hit',
-              count: stepsCount,
-              total: daysLogged,
-            ),
-            const SizedBox(height: 8),
-            _HabitStat(
-              icon: Icons.no_drinks,
-              label: 'No alcohol',
-              count: noAlcoholCount,
-              total: daysLogged,
-            ),
-            const SizedBox(height: 8),
-            _HabitStat(
-              icon: Icons.bedtime,
-              label: 'Good sleep (6-8h)',
-              count: goodSleepCount,
-              total: daysLogged,
-            ),
+            const SizedBox(height: 10),
+            Text('Days logged: $daysLogged'),
+            Text('Alcohol-free days: $alcoholFree/$daysLogged'),
+            Text('Steps goal days: $steps/$daysLogged'),
+            Text('Medication adherence days: $meds/$daysLogged'),
           ],
         ),
       ),
@@ -369,80 +282,22 @@ class _ThisWeekSummaryCard extends StatelessWidget {
   }
 }
 
-class _HabitStat extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final int count;
-  final int total;
+class _CorrelationInsightsCard extends StatelessWidget {
+  final List<DailyLog> logs;
+  final List<LabResult> labs;
+  final List<ScoreSnapshot> scores;
+  final bool onMedication;
 
-  const _HabitStat({
-    required this.icon,
-    required this.label,
-    required this.count,
-    required this.total,
+  const _CorrelationInsightsCard({
+    required this.logs,
+    required this.labs,
+    required this.scores,
+    required this.onMedication,
   });
 
   @override
   Widget build(BuildContext context) {
-    final percentage = total > 0 ? (count / total * 100).toInt() : 0;
-    final isGood = percentage >= 70;
-
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: Colors.grey.shade600),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
-        Text(
-          '$count/$total',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: isGood ? Colors.green : Colors.orange,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LabHistoryCard extends StatelessWidget {
-  final List<LabResult> labs;
-
-  const _LabHistoryCard({required this.labs});
-
-  @override
-  Widget build(BuildContext context) {
-    if (labs.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              Icon(
-                Icons.science_outlined,
-                size: 48,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Lab History',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Add lab results to see trends',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
+    final insights = _buildInsights();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -450,161 +305,148 @@ class _LabHistoryCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Lab History',
+              'Correlation Insights',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 16),
-            ...labs.take(3).map((lab) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _LabHistoryItem(lab: lab),
-                )),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LabHistoryItem extends StatelessWidget {
-  final LabResult lab;
-
-  const _LabHistoryItem({required this.lab});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: const BoxDecoration(
-            color: AppTheme.primaryColor,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+            const SizedBox(height: 12),
+            if (insights.isEmpty)
               Text(
-                '${lab.date.month}/${lab.date.day}/${lab.date.year}',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'LDL: ${lab.ldl?.toStringAsFixed(0) ?? '--'} • '
-                'HDL: ${lab.hdl?.toStringAsFixed(0) ?? '--'} • '
-                'TG: ${lab.triglycerides?.toStringAsFixed(0) ?? '--'}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _InsightsCard extends StatelessWidget {
-  final List<DailyLog> logs;
-  final ScoreSnapshot? currentScore;
-
-  const _InsightsCard({
-    required this.logs,
-    this.currentScore,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final insights = _generateInsights();
-
-    if (insights.isEmpty) {
-      return const SizedBox();
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.lightbulb_outline, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Insights',
-                  style: Theme.of(context).textTheme.titleLarge,
+                'Need more consistent logs to identify habit-to-lipid patterns.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              )
+            else
+              ...insights.map(
+                (insight) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('- $insight'),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...insights.map((insight) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '•',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          insight,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
+              ),
           ],
         ),
       ),
     );
   }
 
-  List<String> _generateInsights() {
+  List<String> _buildInsights() {
     final insights = <String>[];
-    final recentLogs = logs.take(14).toList();
 
-    if (recentLogs.isEmpty) return insights;
-
-    // Medication adherence
-    final medsTaken = recentLogs.where((log) => log.medicationTaken).length;
-    final medsPercentage = (medsTaken / recentLogs.length * 100).toInt();
-    if (medsPercentage < 70) {
+    final ldlChange = _metricPercentChange(
+      labs: labs,
+      getter: (lab) => lab.ldl,
+    );
+    if (ldlChange != null) {
+      final sign = ldlChange <= 0 ? 'down' : 'up';
       insights.add(
-          'Taking medication consistently could improve your score by 5-8 points');
-    } else if (medsPercentage >= 90) {
-      insights.add('Excellent medication adherence! Keep it up.');
+          'LDL is $sign ${ldlChange.abs().toStringAsFixed(0)}% from earliest recorded lab.');
     }
 
-    // Steps
-    final stepsHit = recentLogs.where((log) => log.stepsGoalHit).length;
-    final stepsPercentage = (stepsHit / recentLogs.length * 100).toInt();
-    if (stepsPercentage >= 80) {
-      insights
-          .add('You\'re crushing your step goal $stepsPercentage% of the time');
-    }
-
-    // Diet patterns
-    final highCarbDays = recentLogs.where((log) => log.highCarbDay).length;
-    if (highCarbDays > recentLogs.length / 2) {
+    final tgChange = _metricPercentChange(
+      labs: labs,
+      getter: (lab) => lab.triglycerides,
+    );
+    if (tgChange != null) {
+      final sign = tgChange <= 0 ? 'down' : 'up';
       insights.add(
-          'High-carb days are common. Reducing carbs could lower triglycerides faster');
+          'Triglycerides are $sign ${tgChange.abs().toStringAsFixed(0)}% from earliest recorded lab.');
     }
 
-    // Sleep
-    final poorSleep = recentLogs
-        .where((log) => log.sleepCategory == SleepCategory.lessThan6h)
-        .length;
-    if (poorSleep > 3) {
-      insights.add(
-          'You had $poorSleep nights with poor sleep. Aim for 6-8 hours consistently');
+    final weeks = WeeklyInsightsService.buildWeeklyStats(logs, scores);
+    if (weeks.length >= 2) {
+      final alcoholInsight = _compareWeekBuckets(
+        weeks: weeks,
+        lowCondition: (w) => w.alcoholDays <= 1,
+        highCondition: (w) => w.alcoholDays >= 3,
+        label: 'weeks with <=1 alcohol day',
+        altLabel: 'weeks with >=3 alcohol days',
+      );
+      if (alcoholInsight != null) insights.add(alcoholInsight);
+
+      final stepsInsight = _compareWeekBuckets(
+        weeks: weeks,
+        lowCondition: (w) => w.stepsGoalDays <= 2,
+        highCondition: (w) => w.stepsGoalDays >= 4,
+        label: 'weeks with >=4 step-goal days',
+        altLabel: 'weeks with <=2 step-goal days',
+        reverse: true,
+      );
+      if (stepsInsight != null) insights.add(stepsInsight);
+
+      if (onMedication) {
+        final medsInsight = _compareWeekBuckets(
+          weeks: weeks,
+          lowCondition: (w) => w.medDays <= 4,
+          highCondition: (w) => w.medDays >= 6,
+          label: 'weeks with >=6 medication-adherent days',
+          altLabel: 'weeks with <=4 medication-adherent days',
+          reverse: true,
+        );
+        if (medsInsight != null) insights.add(medsInsight);
+      }
     }
 
-    return insights.take(3).toList();
+    return insights.take(4).toList();
   }
+
+  String? _compareWeekBuckets({
+    required List<WeekStats> weeks,
+    required bool Function(WeekStats) lowCondition,
+    required bool Function(WeekStats) highCondition,
+    required String label,
+    required String altLabel,
+    bool reverse = false,
+  }) {
+    final low = weeks.where((w) => lowCondition(w) && w.hasScore).toList();
+    final high = weeks.where((w) => highCondition(w) && w.hasScore).toList();
+    if (low.isEmpty || high.isEmpty) return null;
+
+    final lowAvg =
+        low.map((w) => w.avgScore).reduce((a, b) => a + b) / low.length;
+    final highAvg =
+        high.map((w) => w.avgScore).reduce((a, b) => a + b) / high.length;
+
+    double delta;
+    String betterLabel;
+    String weakerLabel;
+    if (reverse) {
+      delta = lowAvg - highAvg;
+      betterLabel = label;
+      weakerLabel = altLabel;
+    } else {
+      delta = highAvg - lowAvg;
+      betterLabel = label;
+      weakerLabel = altLabel;
+    }
+
+    return '$betterLabel averaged ${delta.abs().toStringAsFixed(0)} points '
+        '${delta >= 0 ? 'higher' : 'lower'} than $weakerLabel.';
+  }
+
+  double? _metricPercentChange({
+    required List<LabResult> labs,
+    required double? Function(LabResult) getter,
+  }) {
+    final sorted = List<LabResult>.from(labs)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    double? first;
+    double? last;
+    for (final lab in sorted) {
+      final value = getter(lab);
+      if (value != null) {
+        first ??= value;
+        last = value;
+      }
+    }
+    if (first == null || last == null || first == 0) return null;
+    return ((last - first) / first) * 100;
+  }
+}
+
+class _MetricPoint {
+  final DateTime day;
+  final double value;
+
+  _MetricPoint({
+    required this.day,
+    required this.value,
+  });
 }

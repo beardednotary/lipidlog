@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/score_service.dart';
+import '../../core/services/weekly_insights_service.dart';
 import '../../core/models/score_snapshot.dart';
+import '../../core/models/daily_log.dart';
 import '../../core/theme/app_theme.dart';
 import '../labs/labs_screen.dart';
 import '../patterns/patterns_screen.dart';
@@ -78,6 +80,7 @@ class _HomeTab extends ConsumerWidget {
     final profile = StorageService.getUserProfile();
     final labs = StorageService.getAllLabResults();
     final logs = StorageService.getAllDailyLogs();
+    final scores = StorageService.getAllScoreSnapshots();
 
     ScoreSnapshot? score;
     if (profile != null) {
@@ -114,7 +117,11 @@ class _HomeTab extends ConsumerWidget {
             const SizedBox(height: 24),
 
             // This Week Summary
-            _ThisWeekCard(logs: logs),
+            _ThisWeekCard(
+              logs: logs,
+              scores: scores,
+              onMedication: profile?.onMedication ?? false,
+            ),
           ],
         ),
       ),
@@ -317,13 +324,24 @@ class _TodayHabitsCard extends StatelessWidget {
 }
 
 class _ThisWeekCard extends StatelessWidget {
-  final List logs;
+  final List<DailyLog> logs;
+  final List<ScoreSnapshot> scores;
+  final bool onMedication;
 
-  const _ThisWeekCard({required this.logs});
+  const _ThisWeekCard({
+    required this.logs,
+    required this.scores,
+    required this.onMedication,
+  });
 
   @override
   Widget build(BuildContext context) {
-    // TODO: Calculate weekly stats
+    final summary = WeeklyInsightsService.buildCurrentWeekSummary(
+      logs,
+      scores,
+      onMedication: onMedication,
+    );
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -335,10 +353,32 @@ class _ThisWeekCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            Text(
-              'Log your daily habits to see weekly insights',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+            if (summary == null)
+              Text(
+                'Log your daily habits to see weekly insights',
+                style: Theme.of(context).textTheme.bodyMedium,
+              )
+            else ...[
+              Text(
+                'Days logged: ${summary.daysLogged}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Best habit: ${summary.bestHabit.label} (${(summary.bestHabit.score * 100).toStringAsFixed(0)}%)',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Needs work: ${summary.worstHabit.label} (${(summary.worstHabit.score * 100).toStringAsFixed(0)}%)',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                summary.trajectory,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
       ),
