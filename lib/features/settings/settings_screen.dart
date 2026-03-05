@@ -97,6 +97,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   : 'Not set',
               onTap: () => _editTgTarget(context, profile),
             ),
+          _SettingsTile(
+            icon: Icons.flag_outlined,
+            title: 'HDL Target',
+            subtitle: profile.hdlTarget != null
+                ? '${profile.hdlTarget} mg/dL'
+                : 'Not set',
+            onTap: () => _editHdlTarget(context, profile),
+          ),
 
           // Reminders Section
           const _SectionHeader(title: 'Reminders'),
@@ -616,6 +624,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () async {
               final target = double.tryParse(controller.text);
               final updated = profile.copyWith(ldlTarget: target);
+              await StorageService.saveUserProfile(updated);
+              await _recalculateScore();
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              setState(() {});
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Edit HDL Target
+  void _editHdlTarget(BuildContext context, UserProfile profile) {
+    final controller = TextEditingController(
+      text: profile.hdlTarget?.toString() ?? '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('HDL Target'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'HDL Target (mg/dL)',
+            hintText: 'e.g., 60',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final target = double.tryParse(controller.text);
+              final updated = profile.copyWith(hdlTarget: target);
               await StorageService.saveUserProfile(updated);
               await _recalculateScore();
               if (!context.mounted) return;

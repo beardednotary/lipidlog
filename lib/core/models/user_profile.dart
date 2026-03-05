@@ -59,6 +59,9 @@ class UserProfile extends HiveObject {
   @HiveField(17)
   bool prefersMorningLogging;
 
+  @HiveField(18)
+  double? hdlTarget;
+
   UserProfile({
     required this.id,
     this.age,
@@ -66,6 +69,7 @@ class UserProfile extends HiveObject {
     this.focusMode = FocusMode.both,
     this.ldlTarget,
     this.tgTarget,
+    this.hdlTarget,
     this.onMedication = false,
     this.habitReminderEnabled = false,
     this.habitReminderHour = 20,
@@ -88,6 +92,7 @@ class UserProfile extends HiveObject {
     FocusMode? focusMode,
     double? ldlTarget,
     double? tgTarget,
+    double? hdlTarget,
     bool? onMedication,
     bool? habitReminderEnabled,
     int? habitReminderHour,
@@ -107,6 +112,7 @@ class UserProfile extends HiveObject {
       focusMode: focusMode ?? this.focusMode,
       ldlTarget: ldlTarget ?? this.ldlTarget,
       tgTarget: tgTarget ?? this.tgTarget,
+      hdlTarget: hdlTarget ?? this.hdlTarget,
       onMedication: onMedication ?? this.onMedication,
       habitReminderEnabled: habitReminderEnabled ?? this.habitReminderEnabled,
       habitReminderHour: habitReminderHour ?? this.habitReminderHour,
@@ -131,6 +137,7 @@ class UserProfile extends HiveObject {
       'focusMode': focusMode.name,
       'ldlTarget': ldlTarget,
       'tgTarget': tgTarget,
+      'hdlTarget': hdlTarget,
       'onMedication': onMedication,
       'habitReminderEnabled': habitReminderEnabled,
       'habitReminderHour': habitReminderHour,
@@ -157,6 +164,7 @@ class UserProfile extends HiveObject {
       ),
       ldlTarget: json['ldlTarget'] as double?,
       tgTarget: json['tgTarget'] as double?,
+      hdlTarget: json['hdlTarget'] as double?,
       onMedication: json['onMedication'] as bool? ?? false,
       habitReminderEnabled: json['habitReminderEnabled'] as bool? ?? false,
       habitReminderHour: json['habitReminderHour'] as int? ?? 20,

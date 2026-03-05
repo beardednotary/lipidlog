@@ -287,46 +287,40 @@ class ScoreService {
   // E. GOAL SCORE (personalized target)
   // ============================================================================
 
-  /// Compute Goal Score based on user targets
+  /// Compute Goal Score based on user targets.
+  ///
+  /// Builds a hypothetical lab result at the doctor's target values for
+  /// LDL, HDL, and/or TG, then runs the full lab-score formula on it.
+  /// Behavior and trend components are carried forward from the real score
+  /// so the goal score represents: "what would my score be if my labs hit
+  /// the targets my doctor set?"
   static double? computeGoalScore({
     required UserProfile profile,
     required LabResult latestLab,
     required FocusMode mode,
+    double? currentBehaviorScore,
+    double? currentTrendScore,
   }) {
-    // If no target set, return null
-    if (profile.ldlTarget == null && profile.tgTarget == null) {
+    // Need at least one lab target to compute a meaningful goal
+    if (profile.ldlTarget == null &&
+        profile.tgTarget == null &&
+        profile.hdlTarget == null) {
       return null;
     }
 
-    // Create hypothetical lab result at target
-    LabResult targetLab;
+    // Build hypothetical lab at target values; keep current values for fields
+    // without a target so the ratio/nonHDL calculations stay realistic.
+    final targetLab = latestLab.copyWith(
+      ldl: profile.ldlTarget ?? latestLab.ldl,
+      triglycerides: profile.tgTarget ?? latestLab.triglycerides,
+      hdl: profile.hdlTarget ?? latestLab.hdl,
+    );
 
-    switch (mode) {
-      case FocusMode.ldl:
-        if (profile.ldlTarget == null) return null;
-        targetLab = latestLab.copyWith(ldl: profile.ldlTarget);
-        break;
-
-      case FocusMode.triglycerides:
-        if (profile.tgTarget == null) return null;
-        targetLab = latestLab.copyWith(triglycerides: profile.tgTarget);
-        break;
-
-      case FocusMode.both:
-        // Use stricter of the two or both
-        targetLab = latestLab.copyWith(
-          ldl: profile.ldlTarget,
-          triglycerides: profile.tgTarget,
-        );
-        break;
-    }
-
-    // Calculate lab score at target
     final labScoreAtGoal = computeLabScore([targetLab], mode);
 
-    // Assume neutral behavior (15) and trend (10) at goal
-    const behaviorAtGoal = 15.0;
-    const trendAtGoal = 10.0;
+    // Use real behavior/trend scores if available, otherwise neutral
+    final behaviorAtGoal = currentBehaviorScore ?? 15.0;
+    final trendAtGoal = currentTrendScore ?? 10.0;
 
     return (labScoreAtGoal + behaviorAtGoal + trendAtGoal).clamp(0, 100);
   }
@@ -372,6 +366,8 @@ class ScoreService {
         profile: profile,
         latestLab: sortedLabs.first,
         mode: profile.focusMode,
+        currentBehaviorScore: behaviorScore,
+        currentTrendScore: trendScore,
       );
 
       if (goalScore != null) {

@@ -33,6 +33,7 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
       labReminderEnabled: fields[15] as bool? ?? false,
       labReminderMonths: fields[16] as int? ?? 3,
       prefersMorningLogging: fields[17] as bool? ?? false,
+      hdlTarget: fields[18] as double?,
       createdAt: fields[6] as DateTime?,
       updatedAt: fields[7] as DateTime?,
     );
@@ -41,7 +42,7 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
   @override
   void write(BinaryWriter writer, UserProfile obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -77,7 +78,9 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
       ..writeByte(16)
       ..write(obj.labReminderMonths)
       ..writeByte(17)
-      ..write(obj.prefersMorningLogging);
+      ..write(obj.prefersMorningLogging)
+      ..writeByte(18)
+      ..write(obj.hdlTarget);
   }
 
   @override
