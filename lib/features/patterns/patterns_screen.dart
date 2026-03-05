@@ -5,6 +5,7 @@ import '../../core/models/daily_log.dart';
 import '../../core/models/enums.dart';
 import '../../core/models/lab_result.dart';
 import '../../core/models/score_snapshot.dart';
+import '../../core/models/user_profile.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/weekly_insights_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -28,7 +29,11 @@ class _PatternsScreenState extends State<PatternsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Patterns & Trends'),
+        title: const Text('Trends'),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, thickness: 1, color: AppTheme.dividerColor),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -39,6 +44,7 @@ class _PatternsScreenState extends State<PatternsScreen> {
               selectedMetric: _selectedMetric,
               labs: labs,
               scores: scores,
+              profile: profile,
               onMetricChanged: (value) {
                 setState(() => _selectedMetric = value);
               },
@@ -63,12 +69,14 @@ class _MetricTrendCard extends StatelessWidget {
   final int selectedMetric;
   final List<LabResult> labs;
   final List<ScoreSnapshot> scores;
+  final UserProfile? profile;
   final ValueChanged<int> onMetricChanged;
 
   const _MetricTrendCard({
     required this.selectedMetric,
     required this.labs,
     required this.scores,
+    required this.profile,
     required this.onMetricChanged,
   });
 
@@ -78,10 +86,12 @@ class _MetricTrendCard extends StatelessWidget {
     final hasEnoughData = points.length >= 2;
     final current = hasEnoughData ? points.last.value : null;
     final delta = hasEnoughData ? points.last.value - points.first.value : null;
+    final lineColor = _metricColor();
+    final target = _goalValue();
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -103,13 +113,14 @@ class _MetricTrendCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             if (hasEnoughData) ...[
-              Text(
-                _headline(current!, delta!),
-                style: Theme.of(context).textTheme.titleMedium,
+              _DeltaRow(
+                current: current!,
+                delta: delta!,
+                selectedMetric: selectedMetric,
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
-                _subline(points.length),
+                '${points.length} data points',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -121,23 +132,61 @@ class _MetricTrendCard extends StatelessWidget {
               )
             else
               SizedBox(
-                height: 210,
+                height: 200,
                 child: LineChart(
                   LineChartData(
                     minY: 0,
                     gridData: const FlGridData(show: false),
                     borderData: FlBorderData(show: false),
-                    titlesData: const FlTitlesData(
-                      topTitles: AxisTitles(
+                    titlesData: FlTitlesData(
+                      topTitles: const AxisTitles(
                         sideTitles: SideTitles(showTitles: false),
                       ),
-                      rightTitles: AxisTitles(
+                      rightTitles: const AxisTitles(
                         sideTitles: SideTitles(showTitles: false),
                       ),
-                      bottomTitles: AxisTitles(
+                      bottomTitles: const AxisTitles(
                         sideTitles: SideTitles(showTitles: false),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 36,
+                          getTitlesWidget: (value, meta) {
+                            if (value == meta.min || value == meta.max) {
+                              return const SizedBox.shrink();
+                            }
+                            return Text(
+                              value.toStringAsFixed(0),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppTheme.textTertiary,
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
+                    extraLinesData: target != null
+                        ? ExtraLinesData(horizontalLines: [
+                            HorizontalLine(
+                              y: target,
+                              color: AppTheme.positiveColor.withValues(alpha: 0.7),
+                              strokeWidth: 1.5,
+                              dashArray: [6, 4],
+                              label: HorizontalLineLabel(
+                                show: true,
+                                alignment: Alignment.topRight,
+                                labelResolver: (_) => 'Goal',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: AppTheme.positiveColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ])
+                        : null,
                     lineBarsData: [
                       LineChartBarData(
                         spots: points
@@ -149,12 +198,29 @@ class _MetricTrendCard extends StatelessWidget {
                                 ))
                             .toList(),
                         isCurved: true,
-                        color: _metricColor(),
-                        barWidth: 3,
-                        dotData: const FlDotData(show: false),
+                        curveSmoothness: 0.35,
+                        color: lineColor,
+                        barWidth: 2.5,
+                        dotData: FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, bar, index) =>
+                              FlDotCirclePainter(
+                            radius: 4,
+                            color: lineColor,
+                            strokeWidth: 2,
+                            strokeColor: Colors.white,
+                          ),
+                        ),
                         belowBarData: BarAreaData(
                           show: true,
-                          color: _metricColor().withValues(alpha: 0.12),
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              lineColor.withValues(alpha: 0.15),
+                              lineColor.withValues(alpha: 0.0),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -198,43 +264,87 @@ class _MetricTrendCard extends StatelessWidget {
   Color _metricColor() {
     switch (selectedMetric) {
       case 0:
-        return Colors.blue.shade600;
+        return AppTheme.primaryColor;
       case 1:
-        return Colors.orange.shade700;
-      case 2:
-        return AppTheme.primaryColor;
+        return AppTheme.warningColor;
       default:
-        return AppTheme.primaryColor;
+        return AppTheme.positiveColor;
     }
   }
 
-  String _headline(double current, double delta) {
+  double? _goalValue() {
+    if (selectedMetric == 0) return profile?.ldlTarget;
+    if (selectedMetric == 1) return profile?.tgTarget;
+    return null;
+  }
+}
+
+class _DeltaRow extends StatelessWidget {
+  final double current;
+  final double delta;
+  final int selectedMetric;
+
+  const _DeltaRow({
+    required this.current,
+    required this.delta,
+    required this.selectedMetric,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final metric = selectedMetric == 0
         ? 'LDL'
         : selectedMetric == 1
             ? 'TG'
             : 'Score';
-    final direction = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
-    final abs = delta.abs().toStringAsFixed(0);
-    return '$metric now ${current.toStringAsFixed(0)} ($direction $abs)';
-  }
+    final absStr = delta.abs().toStringAsFixed(0);
 
-  String _subline(int pointsCount) {
-    final metric = selectedMetric == 0
-        ? 'LDL'
-        : selectedMetric == 1
-            ? 'triglyceride'
-            : 'score';
-    return '$pointsCount $metric data points';
+    // For LDL and TG, down is good (green). For Score, up is good (green).
+    final bool isGood = selectedMetric == 2 ? delta > 0 : delta < 0;
+    final bool isFlat = delta == 0;
+    final color = isFlat
+        ? AppTheme.textSecondary
+        : isGood
+            ? AppTheme.positiveColor
+            : AppTheme.dangerColor;
+
+    final arrow = isFlat
+        ? '→'
+        : delta > 0
+            ? '↑'
+            : '↓';
+
+    return Row(
+      children: [
+        Text(
+          '$metric ${current.toStringAsFixed(0)}',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(width: 8),
+        if (!isFlat)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$arrow $absStr pts',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+      ],
+    );
   }
 }
 
 class _WeeklySummaryCard extends StatelessWidget {
   final List<DailyLog> logs;
 
-  const _WeeklySummaryCard({
-    required this.logs,
-  });
+  const _WeeklySummaryCard({required this.logs});
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +355,7 @@ class _WeeklySummaryCard extends StatelessWidget {
     if (recent.isEmpty) {
       return Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Text(
             'Log daily habits to generate a weekly summary.',
             style: Theme.of(context).textTheme.bodyMedium,
@@ -260,23 +370,78 @@ class _WeeklySummaryCard extends StatelessWidget {
     final steps = recent.where((log) => log.stepsGoalHit).length;
     final meds = recent.where((log) => log.medicationTaken).length;
 
+    final stats = [
+      _StatRow(
+        label: 'Days logged',
+        value: '$daysLogged / 7',
+        highlight: daysLogged >= 5 ? AppTheme.positiveColor : null,
+      ),
+      _StatRow(
+        label: 'Alcohol-free days',
+        value: '$alcoholFree / $daysLogged',
+        highlight: alcoholFree == daysLogged
+            ? AppTheme.positiveColor
+            : alcoholFree < daysLogged ~/ 2
+                ? AppTheme.warningColor
+                : null,
+      ),
+      _StatRow(
+        label: 'Steps goal days',
+        value: '$steps / $daysLogged',
+        highlight: steps >= daysLogged * 0.7 ? AppTheme.positiveColor : null,
+      ),
+      _StatRow(
+        label: 'Medication days',
+        value: '$meds / $daysLogged',
+        highlight: meds == daysLogged
+            ? AppTheme.positiveColor
+            : meds < daysLogged * 0.8
+                ? AppTheme.warningColor
+                : null,
+      ),
+    ];
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'This Week',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 10),
-            Text('Days logged: $daysLogged'),
-            Text('Alcohol-free days: $alcoholFree/$daysLogged'),
-            Text('Steps goal days: $steps/$daysLogged'),
-            Text('Medication adherence days: $meds/$daysLogged'),
+            Text('This Week', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            const Divider(color: AppTheme.dividerColor, height: 1),
+            const SizedBox(height: 12),
+            ...stats.map((stat) => stat),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StatRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? highlight;
+
+  const _StatRow({required this.label, required this.value, this.highlight});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: highlight ?? AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
       ),
     );
   }
@@ -300,12 +465,12 @@ class _CorrelationInsightsCard extends StatelessWidget {
     final insights = _buildInsights();
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Correlation Insights',
+              'Insights',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
@@ -317,8 +482,24 @@ class _CorrelationInsightsCard extends StatelessWidget {
             else
               ...insights.map(
                 (insight) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text('- $insight'),
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.insights_outlined,
+                        size: 16,
+                        color: AppTheme.primaryColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          insight,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
           ],
@@ -337,7 +518,7 @@ class _CorrelationInsightsCard extends StatelessWidget {
     if (ldlChange != null) {
       final sign = ldlChange <= 0 ? 'down' : 'up';
       insights.add(
-          'LDL is $sign ${ldlChange.abs().toStringAsFixed(0)}% from earliest recorded lab.');
+          'LDL is $sign ${ldlChange.abs().toStringAsFixed(0)}% from your earliest recorded lab.');
     }
 
     final tgChange = _metricPercentChange(
@@ -347,7 +528,7 @@ class _CorrelationInsightsCard extends StatelessWidget {
     if (tgChange != null) {
       final sign = tgChange <= 0 ? 'down' : 'up';
       insights.add(
-          'Triglycerides are $sign ${tgChange.abs().toStringAsFixed(0)}% from earliest recorded lab.');
+          'Triglycerides are $sign ${tgChange.abs().toStringAsFixed(0)}% from your earliest recorded lab.');
     }
 
     final weeks = WeeklyInsightsService.buildWeeklyStats(logs, scores);
@@ -356,8 +537,8 @@ class _CorrelationInsightsCard extends StatelessWidget {
         weeks: weeks,
         lowCondition: (w) => w.alcoholDays <= 1,
         highCondition: (w) => w.alcoholDays >= 3,
-        label: 'weeks with <=1 alcohol day',
-        altLabel: 'weeks with >=3 alcohol days',
+        label: 'weeks with ≤1 alcohol day',
+        altLabel: 'weeks with ≥3 alcohol days',
       );
       if (alcoholInsight != null) insights.add(alcoholInsight);
 
@@ -365,8 +546,8 @@ class _CorrelationInsightsCard extends StatelessWidget {
         weeks: weeks,
         lowCondition: (w) => w.stepsGoalDays <= 2,
         highCondition: (w) => w.stepsGoalDays >= 4,
-        label: 'weeks with >=4 step-goal days',
-        altLabel: 'weeks with <=2 step-goal days',
+        label: 'weeks with ≥4 step-goal days',
+        altLabel: 'weeks with ≤2 step-goal days',
         reverse: true,
       );
       if (stepsInsight != null) insights.add(stepsInsight);
@@ -376,8 +557,8 @@ class _CorrelationInsightsCard extends StatelessWidget {
           weeks: weeks,
           lowCondition: (w) => w.medDays <= 4,
           highCondition: (w) => w.medDays >= 6,
-          label: 'weeks with >=6 medication-adherent days',
-          altLabel: 'weeks with <=4 medication-adherent days',
+          label: 'weeks with ≥6 medication-adherent days',
+          altLabel: 'weeks with ≤4 medication-adherent days',
           reverse: true,
         );
         if (medsInsight != null) insights.add(medsInsight);
@@ -445,8 +626,5 @@ class _MetricPoint {
   final DateTime day;
   final double value;
 
-  _MetricPoint({
-    required this.day,
-    required this.value,
-  });
+  _MetricPoint({required this.day, required this.value});
 }
