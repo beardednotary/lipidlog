@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(flutter --version:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(git add lib/core/theme/app_theme.dart lib/features/food/food_screen.dart lib/features/home/home_screen.dart lib/features/patterns/patterns_screen.dart)",
+      "Bash(git commit:*)",
+      "Bash(git push)"
     ]
   }
 }
