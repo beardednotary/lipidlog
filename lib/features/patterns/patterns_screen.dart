@@ -6,6 +6,7 @@ import '../../core/models/enums.dart';
 import '../../core/models/lab_result.dart';
 import '../../core/models/score_snapshot.dart';
 import '../../core/models/user_profile.dart';
+import '../../core/services/score_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/weekly_insights_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -27,6 +28,19 @@ class _PatternsScreenState extends State<PatternsScreen> {
     final logs = StorageService.getAllDailyLogs();
     final scores = StorageService.getAllScoreSnapshots();
 
+    final sortedLabs = List<LabResult>.from(labs)
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    // Compute goal score for the Score chart goal line
+    double? computedGoalScore;
+    if (profile != null && sortedLabs.isNotEmpty) {
+      computedGoalScore = ScoreService.computeGoalScore(
+        profile: profile,
+        latestLab: sortedLabs.first,
+        mode: profile.focusMode,
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trends'),
@@ -45,12 +59,26 @@ class _PatternsScreenState extends State<PatternsScreen> {
               labs: labs,
               scores: scores,
               profile: profile,
+              goalScoreValue: computedGoalScore,
               onMetricChanged: (value) {
                 setState(() => _selectedMetric = value);
               },
             ),
             const SizedBox(height: 16),
+            _ScoreForecastCard(
+              scores: scores,
+              goalScore: computedGoalScore,
+              currentScore: scores.isNotEmpty
+                  ? (List<ScoreSnapshot>.from(scores)
+                        ..sort((a, b) => b.date.compareTo(a.date)))
+                      .first
+                      .overallScore
+                  : null,
+            ),
+            const SizedBox(height: 16),
             _WeeklySummaryCard(logs: logs),
+            const SizedBox(height: 16),
+            _CoreInsightsCard(labs: labs, logs: logs),
             const SizedBox(height: 16),
             _CorrelationInsightsCard(
               logs: logs,
@@ -65,11 +93,14 @@ class _PatternsScreenState extends State<PatternsScreen> {
   }
 }
 
+// ── Metric Trend Card ──────────────────────────────────────────────────────────
+
 class _MetricTrendCard extends StatelessWidget {
   final int selectedMetric;
   final List<LabResult> labs;
   final List<ScoreSnapshot> scores;
   final UserProfile? profile;
+  final double? goalScoreValue;
   final ValueChanged<int> onMetricChanged;
 
   const _MetricTrendCard({
@@ -77,6 +108,7 @@ class _MetricTrendCard extends StatelessWidget {
     required this.labs,
     required this.scores,
     required this.profile,
+    required this.goalScoreValue,
     required this.onMetricChanged,
   });
 
@@ -95,10 +127,8 @@ class _MetricTrendCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Trend Dashboard',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('Trend Dashboard',
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             SegmentedButton<int>(
               segments: const [
@@ -171,7 +201,8 @@ class _MetricTrendCard extends StatelessWidget {
                         ? ExtraLinesData(horizontalLines: [
                             HorizontalLine(
                               y: target,
-                              color: AppTheme.positiveColor.withValues(alpha: 0.7),
+                              color: AppTheme.positiveColor
+                                  .withValues(alpha: 0.7),
                               strokeWidth: 1.5,
                               dashArray: [6, 4],
                               label: HorizontalLineLabel(
@@ -237,7 +268,8 @@ class _MetricTrendCard extends StatelessWidget {
     if (selectedMetric == 2) {
       final byDay = <DateTime, ScoreSnapshot>{};
       for (final score in scores) {
-        final day = DateTime(score.date.year, score.date.month, score.date.day);
+        final day =
+            DateTime(score.date.year, score.date.month, score.date.day);
         final existing = byDay[day];
         if (existing == null || score.date.isAfter(existing.date)) {
           byDay[day] = score;
@@ -245,7 +277,8 @@ class _MetricTrendCard extends StatelessWidget {
       }
       final sortedDays = byDay.keys.toList()..sort();
       return sortedDays
-          .map((day) => _MetricPoint(day: day, value: byDay[day]!.overallScore))
+          .map((day) =>
+              _MetricPoint(day: day, value: byDay[day]!.overallScore))
           .toList();
     }
 
@@ -275,7 +308,7 @@ class _MetricTrendCard extends StatelessWidget {
   double? _goalValue() {
     if (selectedMetric == 0) return profile?.ldlTarget;
     if (selectedMetric == 1) return profile?.tgTarget;
-    return null;
+    return goalScoreValue;
   }
 }
 
@@ -299,7 +332,7 @@ class _DeltaRow extends StatelessWidget {
             : 'Score';
     final absStr = delta.abs().toStringAsFixed(0);
 
-    // For LDL and TG, down is good (green). For Score, up is good (green).
+    // For LDL/TG, down is good. For Score, up is good.
     final bool isGood = selectedMetric == 2 ? delta > 0 : delta < 0;
     final bool isFlat = delta == 0;
     final color = isFlat
@@ -323,7 +356,8 @@ class _DeltaRow extends StatelessWidget {
         const SizedBox(width: 8),
         if (!isFlat)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
@@ -340,6 +374,171 @@ class _DeltaRow extends StatelessWidget {
     );
   }
 }
+
+// ── Score Forecast Card ────────────────────────────────────────────────────────
+
+class _ScoreForecastCard extends StatelessWidget {
+  final List<ScoreSnapshot> scores;
+  final double? goalScore;
+  final double? currentScore;
+
+  const _ScoreForecastCard({
+    required this.scores,
+    required this.goalScore,
+    required this.currentScore,
+  });
+
+  double? _weeklyVelocity() {
+    if (scores.length < 2) return null;
+    final sorted = List<ScoreSnapshot>.from(scores)
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final days =
+        sorted.last.date.difference(sorted.first.date).inDays;
+    if (days < 7) return null;
+    return (sorted.last.overallScore - sorted.first.overallScore) /
+        days *
+        7;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = currentScore;
+    if (cs == null) return const SizedBox.shrink();
+
+    final velocity = _weeklyVelocity();
+    final projected4wk = velocity != null
+        ? (cs + velocity * 4).clamp(0.0, 100.0)
+        : null;
+
+    final hasContent = projected4wk != null || goalScore != null;
+    if (!hasContent) return const SizedBox.shrink();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Score Forecast',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              'Projections based on current data',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            const Divider(color: AppTheme.dividerColor, height: 1),
+            const SizedBox(height: 16),
+            if (projected4wk != null) ...[
+              _ForecastRow(
+                label: 'If you maintain current habits',
+                sublabel: 'Projected score in 4 weeks',
+                projected: projected4wk,
+                current: cs,
+                velocity: velocity,
+              ),
+            ],
+            if (projected4wk != null && goalScore != null)
+              const SizedBox(height: 16),
+            if (goalScore != null) ...[
+              _ForecastRow(
+                label: 'At doctor-prescribed targets',
+                sublabel: 'Projected score if labs hit goals',
+                projected: goalScore!,
+                current: cs,
+                velocity: null,
+                isGoal: true,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ForecastRow extends StatelessWidget {
+  final String label;
+  final String sublabel;
+  final double projected;
+  final double current;
+  final double? velocity;
+  final bool isGoal;
+
+  const _ForecastRow({
+    required this.label,
+    required this.sublabel,
+    required this.projected,
+    required this.current,
+    this.velocity,
+    this.isGoal = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final delta = projected - current;
+    final isImprovement = delta > 0;
+    final color = isGoal
+        ? AppTheme.primaryColor
+        : isImprovement
+            ? AppTheme.positiveColor
+            : AppTheme.warningColor;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 2),
+          Text(sublabel,
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                projected.toStringAsFixed(0),
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 32,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(0)} pts',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                  Text(
+                    'from ${current.toStringAsFixed(0)} today',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Weekly Summary Card ────────────────────────────────────────────────────────
 
 class _WeeklySummaryCard extends StatelessWidget {
   final List<DailyLog> logs;
@@ -388,7 +587,8 @@ class _WeeklySummaryCard extends StatelessWidget {
       _StatRow(
         label: 'Steps goal days',
         value: '$steps / $daysLogged',
-        highlight: steps >= daysLogged * 0.7 ? AppTheme.positiveColor : null,
+        highlight:
+            steps >= daysLogged * 0.7 ? AppTheme.positiveColor : null,
       ),
       _StatRow(
         label: 'Medication days',
@@ -407,7 +607,8 @@ class _WeeklySummaryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('This Week', style: Theme.of(context).textTheme.titleLarge),
+            Text('This Week',
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
             const Divider(color: AppTheme.dividerColor, height: 1),
             const SizedBox(height: 12),
@@ -447,6 +648,288 @@ class _StatRow extends StatelessWidget {
   }
 }
 
+// ── Core Insights Card ─────────────────────────────────────────────────────────
+
+class _CoreInsightsCard extends StatelessWidget {
+  final List<LabResult> labs;
+  final List<DailyLog> logs;
+
+  const _CoreInsightsCard({required this.labs, required this.logs});
+
+  @override
+  Widget build(BuildContext context) {
+    if (labs.isEmpty) return const SizedBox.shrink();
+
+    final sorted = List<LabResult>.from(labs)
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final latest = sorted.first;
+
+    final sections = <_LabInsightSection>[];
+
+    // TG
+    final tg = latest.triglycerides;
+    if (tg != null && tg >= 150) {
+      final logNote = _tgLogNote();
+      sections.add(_LabInsightSection(
+        metric: 'Triglycerides',
+        value: tg,
+        status: tg >= 500
+            ? 'Very High'
+            : tg >= 200
+                ? 'High'
+                : 'Borderline',
+        statusColor: tg >= 200 ? AppTheme.dangerColor : AppTheme.warningColor,
+        drivers: [
+          'Sugary beverages & fruit juice',
+          'Refined carbohydrates (bread, pasta, rice)',
+          'Alcohol',
+          'Excess caloric intake',
+        ],
+        logNote: logNote,
+      ));
+    }
+
+    // LDL
+    final ldl = latest.ldl;
+    if (ldl != null && ldl >= 100) {
+      final logNote = _ldlLogNote();
+      sections.add(_LabInsightSection(
+        metric: 'LDL Cholesterol',
+        value: ldl,
+        status: ldl >= 190
+            ? 'Very High'
+            : ldl >= 160
+                ? 'High'
+                : ldl >= 130
+                    ? 'Borderline'
+                    : 'Near Optimal',
+        statusColor: ldl >= 160
+            ? AppTheme.dangerColor
+            : ldl >= 130
+                ? AppTheme.warningColor
+                : AppTheme.textSecondary,
+        drivers: [
+          'Saturated fat (butter, red meat, cheese)',
+          'Trans fats (processed foods)',
+          'Low dietary fiber',
+          'Genetic predisposition',
+        ],
+        logNote: logNote,
+      ));
+    }
+
+    // HDL
+    final hdl = latest.hdl;
+    if (hdl != null && hdl < 60) {
+      final logNote = _hdlLogNote();
+      sections.add(_LabInsightSection(
+        metric: 'HDL Cholesterol',
+        value: hdl,
+        status: hdl < 40 ? 'Low' : 'Below Optimal',
+        statusColor:
+            hdl < 40 ? AppTheme.dangerColor : AppTheme.warningColor,
+        drivers: [
+          'Lack of regular aerobic exercise',
+          'High carbohydrate diet',
+          'Excess body weight',
+          'Smoking',
+        ],
+        logNote: logNote,
+        isLow: true,
+      ));
+    }
+
+    if (sections.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle_outline,
+                  color: AppTheme.positiveColor, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Your lab values look healthy — no major drivers to flag.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: AppTheme.positiveColor),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('What May Be Affecting Your Labs',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(
+              'Based on your current values and logged habits',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            ...sections.map((section) => _buildSection(context, section)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection(BuildContext context, _LabInsightSection section) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Metric header
+          Row(
+            children: [
+              Expanded(
+                child: Text(section.metric,
+                    style: Theme.of(context).textTheme.titleSmall),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: section.statusColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '${section.value.toStringAsFixed(0)} · ${section.status}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: section.statusColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            section.isLow ? 'Common reasons HDL stays low:' : 'Common drivers:',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          ...section.drivers.map((d) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: CircleAvatar(
+                        radius: 2.5,
+                        backgroundColor: AppTheme.textTertiary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(d,
+                          style: Theme.of(context).textTheme.bodyMedium),
+                    ),
+                  ],
+                ),
+              )),
+          if (section.logNote != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.warningColor.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: AppTheme.warningColor.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.person_outline,
+                      size: 13, color: AppTheme.warningColor),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      'Based on your logs: ${section.logNote}',
+                      style:
+                          Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: AppTheme.warningColor,
+                              ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String? _tgLogNote() {
+    final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+    final recent = logs.where((l) => l.date.isAfter(weekAgo)).toList();
+    if (recent.isEmpty) return null;
+    final highCarb = recent.where((l) => l.highCarbDay).length;
+    final alcohol =
+        recent.where((l) => l.alcoholLevel != AlcoholLevel.none).length;
+    if (highCarb >= 3) return 'High-carb days logged $highCarb times this week.';
+    if (alcohol >= 3) return 'Alcohol logged $alcohol days this week.';
+    return null;
+  }
+
+  String? _ldlLogNote() {
+    final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+    final recent = logs.where((l) => l.date.isAfter(weekAgo)).toList();
+    if (recent.isEmpty) return null;
+    final satFat = recent.where((l) => l.highSatFatDay).length;
+    if (satFat >= 3) return 'High saturated fat days logged $satFat times this week.';
+    return null;
+  }
+
+  String? _hdlLogNote() {
+    final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+    final recent = logs.where((l) => l.date.isAfter(weekAgo)).toList();
+    if (recent.isEmpty) return null;
+    final steps = recent.where((l) => l.stepsGoalHit).length;
+    if (steps <= 2) return 'Steps goal hit only $steps days this week — exercise is the #1 way to raise HDL.';
+    return null;
+  }
+}
+
+class _LabInsightSection {
+  final String metric;
+  final double value;
+  final String status;
+  final Color statusColor;
+  final List<String> drivers;
+  final String? logNote;
+  final bool isLow;
+
+  const _LabInsightSection({
+    required this.metric,
+    required this.value,
+    required this.status,
+    required this.statusColor,
+    required this.drivers,
+    this.logNote,
+    this.isLow = false,
+  });
+}
+
+// ── Correlation Insights Card ──────────────────────────────────────────────────
+
 class _CorrelationInsightsCard extends StatelessWidget {
   final List<DailyLog> logs;
   final List<LabResult> labs;
@@ -469,14 +952,12 @@ class _CorrelationInsightsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Insights',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('Habit Correlations',
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             if (insights.isEmpty)
               Text(
-                'Need more consistent logs to identify habit-to-lipid patterns.',
+                'Need more consistent logs to identify habit-to-score patterns.',
                 style: Theme.of(context).textTheme.bodyMedium,
               )
             else
@@ -487,7 +968,7 @@ class _CorrelationInsightsCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(
-                        Icons.insights_outlined,
+                        Icons.compare_arrows_outlined,
                         size: 16,
                         color: AppTheme.primaryColor,
                       ),

@@ -86,7 +86,7 @@ class _FoodScreenState extends State<FoodScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: const Text('Impact Simulator'),
+        title: const Text('Best Foods for You'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Divider(

@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 /// Apple Health × Monarch × medical dashboard aesthetic
 class AppTheme {
   // ── Brand Colors ──────────────────────────────────────────────────────────
-  static const Color primaryColor = Color(0xFF2F5DA8);
+  static const Color primaryColor = Color(0xFF3F73C3);
   static const Color backgroundColor = Color(0xFFF7F9FC);
   static const Color surfaceColor = Color(0xFFFFFFFF);
 
@@ -23,10 +23,9 @@ class AppTheme {
   // ── Score Colors ──────────────────────────────────────────────────────────
   // Amber by default; green for excellent; red only below 30
   static Color getScoreColor(double score) {
-    if (score >= 80) return positiveColor;
-    if (score >= 60) return primaryColor;
-    if (score >= 30) return warningColor;
-    return dangerColor;
+    if (score >= 70) return positiveColor; // green — good
+    if (score >= 45) return warningColor;  // amber — needs work
+    return dangerColor;                    // red — bad
   }
 
   // ── Light Theme ───────────────────────────────────────────────────────────
