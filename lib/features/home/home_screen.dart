@@ -14,7 +14,6 @@ import '../../core/models/score_snapshot.dart';
 import '../../core/models/user_profile.dart';
 import '../../core/services/score_service.dart';
 import '../../core/services/storage_service.dart';
-import '../../core/services/weekly_insights_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../food/food_screen.dart';
 import '../habits/daily_habit_screen.dart';
@@ -163,12 +162,6 @@ class _HomeTab extends ConsumerWidget {
             const SizedBox(height: 16),
             _TodayHabitsCard(
               todayLog: todayLog,
-              onMedication: profile?.onMedication ?? false,
-            ),
-            const SizedBox(height: 16),
-            _ThisWeekCard(
-              logs: logs,
-              scores: scores,
               onMedication: profile?.onMedication ?? false,
             ),
             if (latestLab != null) ...[
@@ -437,51 +430,41 @@ class _InsightCard extends StatelessWidget {
 
   _Opportunity? _findBiggestOpportunity() {
     final mode = profile?.focusMode ?? FocusMode.both;
-    final candidates = <_Opportunity>[];
+    final currentLS = ScoreService.computeLabScore([latestLab], mode);
+
+    double gain(LabResult hyp) =>
+        (ScoreService.computeLabScore([hyp], mode) - currentLS)
+            .clamp(0, 50)
+            .toDouble();
+
+    // Priority: TG first (most diet-responsive), then LDL, then HDL only if no other issue
+    final tg = latestLab.triglycerides;
+    if (tg != null) {
+      final target = profile?.tgTarget ?? 150.0;
+      if (tg > target) {
+        return _Opportunity(
+          metric: 'Triglycerides',
+          currentValue: tg,
+          targetValue: target,
+          estimatedGain: gain(latestLab.copyWith(triglycerides: target)),
+          advice: 'Cut sugary beverages, reduce refined carbs, and limit alcohol.',
+          drivers: ['Sugary beverages', 'Refined carbohydrates & bread', 'Alcohol'],
+        );
+      }
+    }
 
     final ldl = latestLab.ldl;
     if (ldl != null) {
       final target = profile?.ldlTarget ?? 100.0;
       if (ldl > target) {
-        final hyp = latestLab.copyWith(ldl: target);
-        final current = ScoreService.computeLabScore([latestLab], mode);
-        final goal = ScoreService.computeLabScore([hyp], mode);
-        candidates.add(_Opportunity(
+        return _Opportunity(
           metric: 'LDL',
           currentValue: ldl,
           targetValue: target,
-          estimatedGain: (goal - current).clamp(0, 50),
-          advice:
-              'Reduce saturated fat, add soluble fiber (oats, beans), and consider plant sterols.',
-          drivers: [
-            'Saturated fat (butter, red meat)',
-            'Low fiber intake',
-            'Refined carbohydrates'
-          ],
-        ));
-      }
-    }
-
-    final tg = latestLab.triglycerides;
-    if (tg != null) {
-      final target = profile?.tgTarget ?? 150.0;
-      if (tg > target) {
-        final hyp = latestLab.copyWith(triglycerides: target);
-        final current = ScoreService.computeLabScore([latestLab], mode);
-        final goal = ScoreService.computeLabScore([hyp], mode);
-        candidates.add(_Opportunity(
-          metric: 'Triglycerides',
-          currentValue: tg,
-          targetValue: target,
-          estimatedGain: (goal - current).clamp(0, 50),
-          advice:
-              'Cut sugary beverages, reduce refined carbs, and limit alcohol.',
-          drivers: [
-            'Sugary beverages',
-            'Refined carbohydrates & bread',
-            'Alcohol'
-          ],
-        ));
+          estimatedGain: gain(latestLab.copyWith(ldl: target)),
+          advice: 'Reduce saturated fat, add soluble fiber (oats, beans), and consider plant sterols.',
+          drivers: ['Saturated fat (butter, red meat)', 'Low fiber intake', 'Refined carbohydrates'],
+        );
       }
     }
 
@@ -489,28 +472,18 @@ class _InsightCard extends StatelessWidget {
     if (hdl != null) {
       final target = profile?.hdlTarget ?? 60.0;
       if (hdl < target) {
-        final hyp = latestLab.copyWith(hdl: target);
-        final current = ScoreService.computeLabScore([latestLab], mode);
-        final goal = ScoreService.computeLabScore([hyp], mode);
-        candidates.add(_Opportunity(
+        return _Opportunity(
           metric: 'HDL',
           currentValue: hdl,
           targetValue: target,
-          estimatedGain: (goal - current).clamp(0, 50),
-          advice:
-              'Regular aerobic exercise and healthy fats (olive oil, nuts, avocado) raise HDL.',
-          drivers: [
-            'Lack of aerobic exercise',
-            'Excess refined carbohydrates',
-            'Excess body weight'
-          ],
-        ));
+          estimatedGain: gain(latestLab.copyWith(hdl: target)),
+          advice: 'Regular aerobic exercise and healthy fats (olive oil, nuts, avocado) raise HDL.',
+          drivers: ['Lack of aerobic exercise', 'Excess refined carbohydrates', 'Excess body weight'],
+        );
       }
     }
 
-    if (candidates.isEmpty) return null;
-    candidates.sort((a, b) => b.estimatedGain.compareTo(a.estimatedGain));
-    return candidates.first;
+    return null;
   }
 
   String? _getLogNote(_Opportunity opp) {
@@ -912,110 +885,6 @@ class _TodayHabitsCard extends StatelessWidget {
   }
 }
 
-// ── This Week Card ─────────────────────────────────────────────────────────────
-
-class _ThisWeekCard extends StatelessWidget {
-  final List<DailyLog> logs;
-  final List<ScoreSnapshot> scores;
-  final bool onMedication;
-
-  const _ThisWeekCard({
-    required this.logs,
-    required this.scores,
-    required this.onMedication,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final summary = WeeklyInsightsService.buildCurrentWeekSummary(
-      logs,
-      scores,
-      onMedication: onMedication,
-    );
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('This Week',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            if (summary == null)
-              Text(
-                'Log your daily habits to see weekly insights',
-                style: Theme.of(context).textTheme.bodyMedium,
-              )
-            else ...[
-              _WeekStatRow(
-                icon: Icons.calendar_today_outlined,
-                label: 'Days logged',
-                value: summary.daysLogged.toString(),
-              ),
-              const SizedBox(height: 10),
-              _WeekStatRow(
-                icon: Icons.emoji_events_outlined,
-                label: 'Best habit',
-                value:
-                    '${summary.bestHabit.label} (${(summary.bestHabit.score * 100).toStringAsFixed(0)}%)',
-                valueColor: AppTheme.positiveColor,
-              ),
-              const SizedBox(height: 10),
-              _WeekStatRow(
-                icon: Icons.flag_outlined,
-                label: 'Needs work',
-                value:
-                    '${summary.worstHabit.label} (${(summary.worstHabit.score * 100).toStringAsFixed(0)}%)',
-                valueColor: AppTheme.warningColor,
-              ),
-              const SizedBox(height: 12),
-              const Divider(color: AppTheme.dividerColor, height: 1),
-              const SizedBox(height: 12),
-              Text(
-                summary.trajectory,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _WeekStatRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  const _WeekStatRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: AppTheme.textSecondary),
-        const SizedBox(width: 8),
-        Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        const Spacer(),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: valueColor ?? AppTheme.textPrimary,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
 // ── Lab Cycle Card ─────────────────────────────────────────────────────────────
 
 class _LabCycleCard extends StatelessWidget {
@@ -1311,7 +1180,7 @@ class _ShareProgressSheetState extends State<_ShareProgressSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // App name + tagline
+                  // App name
                   const Text(
                     'LIPIDLOG',
                     style: TextStyle(
@@ -1322,7 +1191,7 @@ class _ShareProgressSheetState extends State<_ShareProgressSheet> {
                       letterSpacing: 1.8,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   const Text(
                     'Improve your cholesterol score.',
                     style: TextStyle(
@@ -1333,13 +1202,13 @@ class _ShareProgressSheetState extends State<_ShareProgressSheet> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Viral headline
+                  // Viral headline — the hook
                   Text(
                     _viralHeadline,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontFamily: 'Inter',
-                      fontSize: 20,
+                      fontSize: 22,
                       fontWeight: FontWeight.w700,
                       color: scoreColor,
                     ),
@@ -1348,14 +1217,14 @@ class _ShareProgressSheetState extends State<_ShareProgressSheet> {
 
                   // Score ring
                   SizedBox(
-                    width: 100,
-                    height: 100,
+                    width: 96,
+                    height: 96,
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
                         SizedBox(
-                          width: 100,
-                          height: 100,
+                          width: 96,
+                          height: 96,
                           child: CircularProgressIndicator(
                             value: widget.currentScore / 100,
                             strokeWidth: 8,
@@ -1364,68 +1233,44 @@ class _ShareProgressSheetState extends State<_ShareProgressSheet> {
                             strokeCap: StrokeCap.round,
                           ),
                         ),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              widget.currentScore.toStringAsFixed(0),
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 28,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                            const Text(
-                              'score',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 10,
-                                color: AppTheme.textSecondary,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          widget.currentScore.toStringAsFixed(0),
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary,
+                            height: 1,
+                          ),
                         ),
                       ],
                     ),
                   ),
-
-                  // Lab values
-                  if (widget.ldl != null ||
-                      widget.hdl != null ||
-                      widget.tg != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.backgroundColor,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          if (widget.ldl != null)
-                            _ShareStat(
-                                'LDL', widget.ldl!.toStringAsFixed(0)),
-                          if (widget.hdl != null)
-                            _ShareStat(
-                                'HDL', widget.hdl!.toStringAsFixed(0)),
-                          if (widget.tg != null)
-                            _ShareStat('TG', widget.tg!.toStringAsFixed(0)),
-                        ],
-                      ),
+                  const SizedBox(height: 6),
+                  // Score + goal inline
+                  Text(
+                    'score${widget.goalScore != null ? '  ·  Goal: ${widget.goalScore!.toStringAsFixed(0)}' : ''}',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
                     ),
-                  ],
+                  ),
 
-                  if (widget.goalScore != null) ...[
-                    const SizedBox(height: 12),
+                  // Inline lab values with bullet separators
+                  if (widget.ldl != null || widget.hdl != null || widget.tg != null) ...[
+                    const SizedBox(height: 20),
                     Text(
-                      'Goal: ${widget.goalScore!.toStringAsFixed(0)} pts',
+                      [
+                        if (widget.ldl != null) 'LDL ${widget.ldl!.toStringAsFixed(0)}',
+                        if (widget.hdl != null) 'HDL ${widget.hdl!.toStringAsFixed(0)}',
+                        if (widget.tg != null) 'TG ${widget.tg!.toStringAsFixed(0)}',
+                      ].join('  ·  '),
                       style: const TextStyle(
                         fontFamily: 'Inter',
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                   ],
@@ -1466,35 +1311,3 @@ class _ShareProgressSheetState extends State<_ShareProgressSheet> {
   }
 }
 
-class _ShareStat extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _ShareStat(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            color: AppTheme.textSecondary,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-}

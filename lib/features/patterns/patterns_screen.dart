@@ -769,11 +769,11 @@ class _CoreInsightsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('What May Be Affecting Your Labs',
+            Text('Most Likely Drivers to Review',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(
-              'Based on your current values and logged habits',
+              'Based on your current labs and common patterns.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
