@@ -5,7 +5,8 @@
       "Bash(wc:*)",
       "Bash(git add lib/core/theme/app_theme.dart lib/features/food/food_screen.dart lib/features/home/home_screen.dart lib/features/patterns/patterns_screen.dart)",
       "Bash(git commit:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(git add lib/features/home/home_screen.dart lib/features/patterns/patterns_screen.dart)"
     ]
   }
 }
